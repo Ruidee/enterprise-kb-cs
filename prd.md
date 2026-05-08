@@ -729,6 +729,88 @@ index_params = {
 
 ---
 
+
+---
+
+## 14. 评估数据来源与 PM 自测用例
+
+### 评估数据来源
+
+本项目评估数据来自三部分：
+
+| 数据来源 | 内容 | 数量 |
+|---------|------|------|
+| 历史客服对话 | 企业微信客服过去 3 个月的真实客户咨询记录 | 500 条 |
+| 检索 Ground Truth | 对每条问题人工标注"应该命中哪些文档" | 200 条 |
+| 问答 Ground Truth | 每条客户问题配上标准答案（由资深客服编写） | 200 条 |
+
+**Ground Truth 标注流程**：
+1. 从 500 条客服对话中抽出 200 条
+2. 2 位客服主管分别标注
+3. 取两人选择的交集作为 ground truth，争议项讨论
+4. 最终每条问题对应 1-5 个相关文档 ID
+
+**评测方式**：在 200 条测试集上计算 Recall@10、MRR、Hit Rate。目标：Recall@10 > 85%，MRR > 0.85。
+
+### PM 自测用例（10 条）
+
+以下测试用例由 AI 产品经理根据真实客服场景编写：
+
+```python
+test_cases = [
+    {"query": "A-line婚纱有哪些颜色可选？",
+     "expected_docs": ["product_guide", "color_chart"],
+     "expected_elements": ["A-line", "颜色选项"]},
+    {"query": "我5'4，140磅，穿什么码？",
+     "expected_docs": ["size_chart", "fit_guide"],
+     "expected_elements": ["尺码建议", "测量方法"]},
+    {"query": "订单AZ2024001发货了吗？",
+     "expected_docs": ["shipping_policy", "order_tracking"],
+     "expected_elements": ["订单状态", "物流时效"]},
+    {"query": "婚纱不合适能退吗？",
+     "expected_docs": ["return_policy", "exchange_process"],
+     "expected_elements": ["退货条件", "时间窗口", "流程"]},
+    {"query": "蕾丝婚纱怎么清洗？",
+     "expected_docs": ["care_instructions"],
+     "expected_elements": ["干洗", "蕾丝保养"]},
+    {"query": "能改短裙摆吗？多少钱？",
+     "expected_docs": ["alteration_service", "pricing"],
+     "expected_elements": ["改短", "费用"]},
+    {"query": "老板叫什么？",
+     "expected_docs": [],
+     "expected_elements": ["无法回答", "转人工"]},
+    {"query": "Do you ship to Canada?",
+     "expected_docs": ["shipping_policy"],
+     "expected_elements": ["英文", "加拿大"]},
+    {"query": "太过分了！20天还没收到！",
+     "expected_docs": ["complaint_process", "shipping_policy"],
+     "expected_elements": ["道歉", "查询", "方案"]},
+    {"query": "多少钱？有折扣吗？多久到？",
+     "expected_docs": ["pricing", "promotion", "shipping_policy"],
+     "expected_elements": ["价格", "促销", "物流"]},
+]
+```
+
+**通过标准**：文档召回 >= 70%，回答含所有要素。10 条全过才进正式 200 条评估。
+
+### ROI 计算
+
+| 项目 | 金额 | 说明 |
+|------|------|------|
+| 开发（2工程师 x 3月） | $48,000 | RAG + Agent + 企微对接 |
+| 知识库整理（2人月） | $7,000 | 文档分类与质量审核 |
+| Ground Truth 标注 | $1,500 | 200条检索 + 200条问答 |
+| **一次性总成本** | **$56,500** | 分摊3年 = $18,833/年 |
+| LLM API | $113/年 | |
+| Embedding + Reranker | $560/年 | |
+| 服务器 | $960/年 | |
+| 维护（0.5工程师） | $25,000/年 | |
+| **年总成本** | **$45,506** | |
+| **年总收益** | **$620,000** | 省10人$42万+退货降3%$15万+夜间$5万 |
+
+**ROI = ($620,000 - $45,506) / $45,506 = 1,262%**
+**回本周期：约 1 个月**
+
 ## 13. 与研发协作说明
 
 ### 协作流程
