@@ -746,53 +746,136 @@ index_params = {
 
 **Ground Truth 标注流程**：
 1. 从 500 条客服对话中抽出 200 条
-2. 2 位客服主管分别标注
+2. 2 位客服主管分别标注"这个问题应该从知识库的哪些文档找答案"
 3. 取两人选择的交集作为 ground truth，争议项讨论
 4. 最终每条问题对应 1-5 个相关文档 ID
 
-**评测方式**：在 200 条测试集上计算 Recall@10、MRR、Hit Rate。目标：Recall@10 > 85%，MRR > 0.85。
+### KPI 定义与计算公式
 
-### PM 自测用例（10 条）
+**检索阶段 KPI**
 
-以下测试用例由 AI 产品经理根据真实客服场景编写：
+| KPI | 公式 | 数据来源 | 目标值 |
+|-----|------|---------|--------|
+| **Recall@10** | 前 10 个检索结果中，命中 Ground Truth 文档数 / GT 总文档数 × 100% | 200 条检索 GT | > 85% |
+| **MRR** | 每条问题第一个命中 GT 的排名的倒数，取 200 条平均 | 200 条检索 GT | > 0.85 |
+| **Hit Rate** | 至少命中 1 个 GT 文档的问题数 / 总问题数 × 100% | 200 条检索 GT | > 95% |
+| **Precision@5** | 前 5 个结果中命中 GT 的比例 | 200 条检索 GT | > 60% |
+
+**生成阶段 KPI**
+
+| KPI | 公式 | 数据来源 | 目标值 |
+|-----|------|---------|--------|
+| **Faithfulness** | 回答内容能在检索文档中找到依据的比例（人工评） | 200 条问答 GT | > 95% |
+| **回答要素覆盖率** | 每条回答中 expected_elements 命中率，取平均 | 10 条自测 + 200 条 GT | > 85% |
+| **无答案准确率** | 知识库无相关内容时，正确回答"不知道"的比例 | 含无 GT 的用例 | > 90% |
+
+**系统性能 KPI**
+
+| KPI | 公式 | 数据来源 | 目标值 |
+|-----|------|---------|--------|
+| **端到端 P50 延迟** | 用户发消息到收到回复的时间中位数 | 全量请求 | < 3s |
+| **检索 P99 延迟** | 最慢的 1% 检索耗时 | 全量请求 | < 200ms |
+
+### PM 自测用例（10 条）与评分规则
+
+每条用例跑完后记录两个阶段的数据：
+
+```python
+test_result = {
+    "用例编号": 1,
+    "query": "A-line婚纱有哪些颜色可选？",
+    
+    # 阶段一：检索
+    "实际检索到的 docs": ["product_guide", "size_chart", "fabric_guide"],
+    "GT 期望的 docs": ["product_guide", "color_chart"],
+    "命中数": 1,           # product_guide 命中了
+    "Recall": 1/2 = 50%,   # 2 个期望文档，只命中 1 个
+    "MRR 贡献": 1/1 = 1.0, # 第 1 个就命中了
+    
+    # 阶段二：生成
+    "模型回答": "A-line婚纱有白色、象牙色、香槟色可选...",
+    "预期要素": ["A-line", "颜色选项"],
+    "实际命中要素": ["A-line", "颜色选项"],
+    "要素覆盖率": 100%,
+    
+    "响应时间_ms": 1850,
+    "是否通过": True,   # 检索 Recall > 85%（这条没通过）+ 要素全命中
+}
+```
+
+**这个评分揭示了重要信息**：
+- 检索 Recall 只有 50%（没到 85%）→ 问题出在 Milvus 检索，不是 LLM
+- Reranker 即使把结果排好了，检索阶段漏了也是白费
+- 这就是为什么 Recall 是 RAG 系统**最核心**的 KPI
+
+### 10 条自测用例
 
 ```python
 test_cases = [
+    # 场景1：产品咨询
     {"query": "A-line婚纱有哪些颜色可选？",
      "expected_docs": ["product_guide", "color_chart"],
      "expected_elements": ["A-line", "颜色选项"]},
+    # 场景2：尺码咨询
     {"query": "我5'4，140磅，穿什么码？",
      "expected_docs": ["size_chart", "fit_guide"],
      "expected_elements": ["尺码建议", "测量方法"]},
+    # 场景3：物流查询
     {"query": "订单AZ2024001发货了吗？",
      "expected_docs": ["shipping_policy", "order_tracking"],
      "expected_elements": ["订单状态", "物流时效"]},
+    # 场景4：退换货
     {"query": "婚纱不合适能退吗？",
      "expected_docs": ["return_policy", "exchange_process"],
      "expected_elements": ["退货条件", "时间窗口", "流程"]},
+    # 场景5：材质清洗
     {"query": "蕾丝婚纱怎么清洗？",
      "expected_docs": ["care_instructions"],
      "expected_elements": ["干洗", "蕾丝保养"]},
+    # 场景6：定制修改
     {"query": "能改短裙摆吗？多少钱？",
      "expected_docs": ["alteration_service", "pricing"],
      "expected_elements": ["改短", "费用"]},
+    # 场景7（边界）：无此知识
     {"query": "老板叫什么？",
      "expected_docs": [],
      "expected_elements": ["无法回答", "转人工"]},
+    # 场景8（边界）：多语言
     {"query": "Do you ship to Canada?",
      "expected_docs": ["shipping_policy"],
      "expected_elements": ["英文", "加拿大"]},
+    # 场景9（边界）：投诉情绪
     {"query": "太过分了！20天还没收到！",
      "expected_docs": ["complaint_process", "shipping_policy"],
      "expected_elements": ["道歉", "查询", "方案"]},
+    # 场景10（边界）：多问题混合
     {"query": "多少钱？有折扣吗？多久到？",
      "expected_docs": ["pricing", "promotion", "shipping_policy"],
      "expected_elements": ["价格", "促销", "物流"]},
 ]
 ```
 
-**通过标准**：文档召回 >= 70%，回答含所有要素。10 条全过才进正式 200 条评估。
+### 通过标准（四层，顺序执行）
 
+```
+第一层：10 条自测通过
+  → 检索 Recall >= 70%（10 条平均）
+  → 回答要素覆盖率 100%（每条都全命中）
+  → 不通过就调检索策略或 Prompt
+
+第二层：200 条检索测试集
+  → Recall@10 > 85%     ← 检索阶段的核心指标
+  → MRR > 0.85           ← 排名够不够靠前
+  → Hit Rate > 95%       ← 有没有完全查不到的
+
+第三层：200 条问答评估
+  → Faithfulness > 95% ← LLM 有没有编造
+  → 人工评分 >= 4.0/5
+
+第四层：上线后追踪
+  → 转人工率 < 15%
+  → 用户修正率 < 20%
+  → P50 延迟 < 3s
 ### ROI 计算
 
 | 项目 | 金额 | 说明 |
